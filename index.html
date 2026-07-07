@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Buhlmann AR</title>
+  <script src="vendor/aframe-arjs.min.js"></script>
+  <script src="vendor/mindar-image-aframe.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #111; overflow: hidden; touch-action: none; margin: 0; }
+    a-scene { width: 100vw !important; height: 100vh !important; }
+    #hud {
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 9998;
+      padding: 12px 12px 24px;
+      background: linear-gradient(to top, rgba(0,0,0,0.9) 0%, transparent 100%);
+      display: flex; flex-direction: column; align-items: center; gap: 10px;
+    }
+    #status { color: rgba(255,255,255,0.7); font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase; }
+    #buttons { display: flex; gap: 8px; }
+    .layer-btn {
+      border: 2px solid rgba(255,255,255,0.25); border-radius: 40px;
+      padding: 10px 24px; font-size: 13px; font-weight: 600;
+      cursor: pointer; color: white; background: rgba(255,255,255,0.08);
+    }
+    .layer-btn.active { background: rgba(255,255,255,0.3); border-color: white; }
+    #scan-hint {
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+      z-index: 9997; text-align: center; pointer-events: none; transition: opacity 0.5s;
+    }
+    #scan-hint.hidden { opacity: 0; }
+    .scan-ring {
+      width: 160px; height: 160px; border: 3px solid rgba(255,255,255,0.3);
+      border-radius: 20px; margin: 0 auto 12px; animation: scanPulse 2s ease-in-out infinite;
+    }
+    @keyframes scanPulse { 0%,100%{opacity:0.7;transform:scale(1);}50%{opacity:1;transform:scale(1.04);} }
+    #scan-hint p { color: rgba(255,255,255,0.8); font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; }
+    #info-panel {
+      position: fixed; top: 20px; right: 12px; z-index: 9998;
+      background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 10px; padding: 10px 14px; color: white; font-size: 12px;
+      line-height: 1.6; opacity: 0; transition: opacity 0.4s; pointer-events: none;
+    }
+    #info-panel.visible { opacity: 1; }
+    .dot {
+      display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+      background: #4ade80; margin-right: 5px; animation: pulse 1.4s infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1;}50%{opacity:0.3;} }
+    .a-enter-vr, .a-enter-ar, .a-orientation-modal,
+    [data-aframe-inspector], .a-loader-title, .rs-base { display: none !important; }
+    #debug-toggle {
+      position: fixed; top: 6px; right: 8px; z-index: 10000;
+      background: rgba(0,0,0,0.7); border: 1px solid #444; border-radius: 6px;
+      color: #0f0; font-size: 11px; padding: 3px 8px; cursor: pointer;
+    }
+    #debug-panel {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
+      background: rgba(0,0,0,0.85); color: #0f0; font-family: monospace;
+      font-size: 11px; line-height: 1.5; padding: 6px 10px;
+      max-height: 40vh; overflow-y: auto; border-bottom: 1px solid #333;
+    }
+    #debug-panel .d-err  { color: #ff5f5f; }
+    #debug-panel .d-warn { color: #ffd166; }
+    #debug-panel .d-info { color: #06d6a0; }
+    #debug-panel .d-log  { color: #aaa; }
+  </style>
+</head>
+<body>
+
+  <div id="onboarding" style="display:flex; position:fixed; top:0; left:0; right:0; bottom:0; z-index:99999; background:#0a0a0a; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:40px;">
+    <div style="font-size:56px; margin-bottom:24px;">📱</div>
+    <div style="color:white; font-size:22px; font-weight:700; margin-bottom:12px; font-family:sans-serif;">Buhlmann AR</div>
+    <div style="color:white; font-size:16px; font-weight:600; margin-bottom:8px; font-family:sans-serif;">Keep your phone in portrait mode</div>
+    <div style="color:rgba(255,255,255,0.6); font-size:14px; line-height:1.6; margin-bottom:32px; font-family:sans-serif;">Point your camera at the poster</div>
+    <button onclick="document.getElementById('onboarding').style.display='none';" style="background:white; color:#000; border:none; border-radius:30px; padding:14px 32px; font-size:16px; font-weight:700; cursor:pointer; font-family:sans-serif;">Start experience</button>
+  </div>
+
+  <div id="debug-panel" style="display:none;"></div>
+  <button id="debug-toggle" onclick="toggleDebug()">▼ show log</button>
+
+  <div id="scan-hint">
+    <div class="scan-ring"></div>
+    <p>Point at the poster</p>
+  </div>
+
+  <div id="info-panel">
+    <span class="dot"></span> Image detected<br>
+    <span style="color:rgba(255,255,255,0.5);font-size:11px;">Tap to reveal</span>
+  </div>
+
+  <div id="hud">
+    <div id="status">Initialising…</div>
+    <div id="buttons">
+      <button class="layer-btn" id="btn-layer1" onclick="toggleLayer('layer1')">Test</button>
+    </div>
+  </div>
+
+  <a-scene
+    mindar-image="imageTargetSrc: assets/targets.mind; autoStart: true; uiLoading: no; uiError: no; uiScanning: no; filterMinCF: 0.0001; filterBeta: 0.0001; missTolerance: 10; warmupTolerance: 10;"
+    color-space="sRGB"
+    renderer="colorManagement: false; physicallyCorrectLights: false;"
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: false">
+
+    <a-assets>
+      <img id="layer1-img" src="flatland.png" />
+    </a-assets>
+
+    <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+
+    <a-entity id="ar-target" mindar-image-target="targetIndex: 0">
+      <a-plane src="#layer1-img" id="layer1"
+        position="0 0 0.001" rotation="0 0 0"
+        width="1" height="0.5"
+        visible="false"
+        material="transparent: true; alphaTest: 0.05; side: double;">
+      </a-plane>
+    </a-entity>
+
+  </a-scene>
+
+  <script>
+    var dbg = document.getElementById('debug-panel');
+    var debugVisible = false;
+
+    function toggleDebug() {
+      debugVisible = !debugVisible;
+      dbg.style.display = debugVisible ? 'block' : 'none';
+      document.getElementById('debug-toggle').textContent = debugVisible ? '▲ hide log' : '▼ show log';
+    }
+
+    function log(msg, type) {
+      type = type || 'log';
+      var line = document.createElement('div');
+      line.className = 'd-' + type;
+      line.textContent = '[' + new Date().toTimeString().slice(0,8) + '] ' + msg;
+      dbg.appendChild(line);
+      dbg.scrollTop = dbg.scrollHeight;
+    }
+
+    window.onerror = function(msg, src, ln) { log('ERROR: ' + msg + ' (line ' + ln + ')', 'err'); };
+
+    var layerMap = { layer1: 'layer1' };
+    var state    = { layer1: false };
+
+    function toggleLayer(name) {
+      var wasActive = state[name];
+      Object.keys(state).forEach(function(key) {
+        state[key] = false;
+        var el = document.getElementById(layerMap[key]);
+        if (el) el.setAttribute('visible', false);
+        var btn = document.getElementById('btn-' + key);
+        if (btn) btn.classList.remove('active');
+      });
+      if (!wasActive) {
+        state[name] = true;
+        var el = document.getElementById(layerMap[name]);
+        if (el) el.setAttribute('visible', true);
+        var btn = document.getElementById('btn-' + name);
+        if (btn) btn.classList.add('active');
+        log('Layer ' + name + ': ON', 'info');
+      } else {
+        log('Layer ' + name + ': OFF', 'info');
+      }
+    }
+
+    var scene     = document.querySelector('a-scene');
+    var target    = document.getElementById('ar-target');
+    var statusEl  = document.getElementById('status');
+    var hint      = document.getElementById('scan-hint');
+    var infoPanel = document.getElementById('info-panel');
+
+    scene.addEventListener('loaded', function() {
+      statusEl.textContent = 'Point at the poster…';
+    });
+
+    target.addEventListener('targetFound', function() {
+      statusEl.textContent = '✓ Poster detected – tap to reveal';
+      hint.classList.add('hidden');
+      infoPanel.classList.add('visible');
+    });
+
+    target.addEventListener('targetLost', function() {
+      statusEl.textContent = 'Point at the poster…';
+      hint.classList.remove('hidden');
+      infoPanel.classList.remove('visible');
+    });
+  </script>
+</body>
+</html>
