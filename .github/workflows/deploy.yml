@@ -1,0 +1,43 @@
+name: Install dependencies and deploy
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download library files
+        run: |
+          mkdir -p vendor
+
+          # A-Frame 1.5.0 - recommended for MindAR
+          curl -L "https://aframe.io/releases/1.5.0/aframe.min.js" -o vendor/aframe-arjs.min.js
+          echo "aframe size: $(wc -c < vendor/aframe-arjs.min.js)"
+
+          # MindAR image tracking with A-Frame
+          curl -L "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js" -o vendor/mindar-image-aframe.js
+          echo "mindar size: $(wc -c < vendor/mindar-image-aframe.js)"
+
+          ls -lh vendor/
+
+      - name: Commit and push vendor/ files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add vendor/
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Auto: add MindAR vendor files"
+            git push origin main
+          fi
